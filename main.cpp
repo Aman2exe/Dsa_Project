@@ -7,6 +7,8 @@
 #include <queue>
 #include <limits>
 #include <sstream>
+#include <algorithm>
+#include <set>
 using namespace std;
 
 struct Edge {
@@ -14,16 +16,13 @@ struct Edge {
     int val;
 };
 
-// 🎨 Manual lowercase converter
 string toLowerManual(string s) {
-    for (int i = 0; i < s.size(); i++) {
-        if (s[i] >= 'A' && s[i] <= 'Z')
-            s[i] = s[i] - 'A' + 'a';
-    }
+    for (char &ch : s)
+        if (ch >= 'A' && ch <= 'Z')
+            ch = ch - 'A' + 'a';
     return s;
 }
 
-// 🎨 Show all cities from file
 void showAllCities() {
     ifstream file("city.txt");
     if (!file.is_open()) {
@@ -32,18 +31,17 @@ void showAllCities() {
     }
     cout << "\033[1;36mAvailable Cities:\033[0m\n";
     string name;
-    int count = 0;
+    bool empty = true;
     while (file >> name) {
         cout << "  -> " << name << "\n";
-        count++;
+        empty = false;
     }
-    if (count == 0)
+    if (empty)
         cout << "  (No cities added yet!)\n";
     cout << endl;
     file.close();
 }
 
-// 🗺 Load graph data
 void loadGraph(map<string, vector<Edge>>& graph, string mode) {
     ifstream file("path.txt");
     if (!file.is_open()) {
@@ -56,76 +54,89 @@ void loadGraph(map<string, vector<Edge>>& graph, string mode) {
     while (file >> a >> b >> t >> c) {
         a = toLowerManual(a);
         b = toLowerManual(b);
-        if (mode == "cost") {
-            graph[a].push_back({b, c});
-            graph[b].push_back({a, c});
-        } else if (mode == "time") {
-            graph[a].push_back({b, t});
-            graph[b].push_back({a, t});
-        } else {
-            int overall_val = static_cast<int>(t * 0.6 + c * 0.4);
-            graph[a].push_back({b, overall_val});
-            graph[b].push_back({a, overall_val});
-        }
+        int value;
+        if (mode == "cost") value = c;
+        else if (mode == "time") value = t;
+        else value = static_cast<int>(t * 0.6 + c * 0.4);
+
+        graph[a].push_back({b, value});
+        graph[b].push_back({a, value});
     }
     file.close();
 }
 
-void printPath(map<string, string>& parent, string start, string end) {
-    if (end == start) {
-        cout << start;
+struct FullPath {
+    vector<string> route;
+    int totalValue;
+};
+
+
+void dfsAllPaths(string current, string dest, map<string, vector<Edge>>& graph,
+                 map<string, bool>& visited, vector<string>& path, int cost,
+                 vector<FullPath>& allPaths) {
+    if (current == dest) {
+        allPaths.push_back({path, cost});
         return;
     }
-    printPath(parent, start, parent[end]);
-    cout << " -> " << end;
+
+    visited[current] = true;
+    for (auto& e : graph[current]) {
+        if (!visited[e.to]) {
+            path.push_back(e.to);
+            dfsAllPaths(e.to, dest, graph, visited, path, cost + e.val, allPaths);
+            path.pop_back(); 
+        }
+    }
+    visited[current] = false;
 }
 
-// 🔍 Dijkstra’s shortest path
-void pathfinder(map<string, vector<Edge>>& graph, string start, string end) {
-    map<string, int> dist;
-    map<string, string> parent;
-    priority_queue<pair<int, string>, vector<pair<int, string>>, greater<pair<int, string>>> pq;
-    dist[start] = 0;
-    pq.push({0, start});
-    parent[start] = "";
-    bool pathFound = false;
+vector<FullPath> removeDuplicatePaths(const vector<FullPath>& allPaths) {
+    vector<FullPath> uniquePaths;
+    set<string> seen;
 
-    while (!pq.empty()) {
-        int d = pq.top().first;
-        string u = pq.top().second;
-        pq.pop();
+    for (const auto& p : allPaths) {
+        string pathString;
+        for (const auto& city : p.route)
+            pathString += city + "->";
+        pathString.pop_back(); 
 
-        if (d > dist[u] && dist.count(u)) continue;
-        if (u == end) {
-            pathFound = true;
-            break;
-        }
-        if (graph.find(u) == graph.end()) continue;
-
-        for (auto& edge : graph[u]) {
-            string v = edge.to;
-            int weight = edge.val;
-            int new_dist = d + weight;
-            if (dist.find(v) == dist.end() || new_dist < dist[v]) {
-                dist[v] = new_dist;
-                parent[v] = u;
-                pq.push({new_dist, v});
-            }
+        if (!seen.count(pathString)) {
+            seen.insert(pathString);
+            uniquePaths.push_back(p);
         }
     }
 
-    if (pathFound) {
-        cout << "\033[1;32mBest path from " << start << " to " << end 
-             << " has a total value of " << dist[end] << ".\033[0m\n";
-        cout << "\033[1;36mPath: \033[0m";
-        printPath(parent, start, end);
-        cout << "\n";
-    } else {
-        cout << "\033[1;31mNo path found from " << start << " to " << end << ".\033[0m\n";
+    return uniquePaths;
+}
+
+void findTopKPaths(map<string, vector<Edge>> graph, string start, string end, int K) {
+    vector<FullPath> allPaths;
+    map<string, bool> visited;
+    vector<string> path = {start};
+
+    dfsAllPaths(start, end, graph, visited, path, 0, allPaths);
+
+    if (allPaths.empty()) {
+        cout << "\033[1;31mNo route found between " << start << " and " << end << "!\033[0m\n";
+        return;
+    }
+
+    sort(allPaths.begin(), allPaths.end(), [](const FullPath& a, const FullPath& b) {
+        return a.totalValue < b.totalValue;
+    });
+    allPaths = removeDuplicatePaths(allPaths);
+    cout << "\n\033[1;34mBest ways to travel from " << start << " to " << end << ":\033[0m\n";  
+    int shown = min(K, (int)allPaths.size());
+    for (int i = 0; i < shown; i++) {
+        cout << "\033[1;36m" << i + 1 << ".\033[0m ";
+        for (int j = 0; j < allPaths[i].route.size(); j++) {
+            cout << allPaths[i].route[j];
+            if (j < allPaths[i].route.size() - 1) cout << " -> ";
+        }
+        cout << "  (\033[1;32m" << allPaths[i].totalValue << "\033[0m)\n";
     }
 }
 
-// 🚗 Cost-based path
 void costpath() {
     system("cls");
     cout << "\033[1;34m=== BEST COST PATH FINDER ===\033[0m\n\n";
@@ -147,13 +158,12 @@ void costpath() {
         return;
     }
 
-    cout << "\033[1;36mFinding best cost route...\033[0m\n";
+    cout << "\033[1;36mFinding best cost routes...\033[0m\n";
     Sleep(1000);
-    pathfinder(graph, start, end);
+    findTopKPaths(graph, start, end, 5);
     system("pause");
 }
 
-// ⏱ Time-based path
 void timepath() {
     system("cls");
     cout << "\033[1;34m=== BEST TIME PATH FINDER ===\033[0m\n\n";
@@ -175,13 +185,12 @@ void timepath() {
         return;
     }
 
-    cout << "\033[1;36mFinding fastest route...\033[0m\n";
+    cout << "\033[1;36mFinding fastest routes...\033[0m\n";
     Sleep(1000);
-    pathfinder(graph, start, end);
+    findTopKPaths(graph, start, end, 5);
     system("pause");
 }
 
-// 🌟 Overall best path
 void overallbest() {
     system("cls");
     cout << "\033[1;34m=== BEST OVERALL PATH FINDER ===\033[0m\n\n";
@@ -203,17 +212,16 @@ void overallbest() {
         return;
     }
 
-    cout << "\033[1;36mCalculating best overall route...\033[0m\n";
+    cout << "\033[1;36mCalculating best overall routes...\033[0m\n";
     Sleep(1000);
-    pathfinder(graph, start, end);
+    findTopKPaths(graph, start, end, 5);
     system("pause");
 }
 
-// 🚦 Menu for finding path
 void Alltypeofpath() {
     int choice;
     while (true) {
-        cout << "\033[1;35mSelect the way in which you want to find the route:\033[0m\n";
+        cout << "\033[1;35mSelect the type of route you want to find:\033[0m\n";
         cout << "1. Best cost path\n";
         cout << "2. Best timing path\n";
         cout << "3. Best overall path\n";
@@ -221,10 +229,6 @@ void Alltypeofpath() {
         cout << "Enter your choice: ";
         string input;
         cin >> input;
-        while (input.size() != 1 || input[0] < '0' || input[0] > '9') {
-            cout << "\033[1;31mInvalid input. Please enter 1-4:\033[0m ";
-            cin >> input;
-        }
         choice = input[0] - '0';
         system("cls");
         switch (choice) {
@@ -232,23 +236,20 @@ void Alltypeofpath() {
             case 2: timepath(); break;
             case 3: overallbest(); break;
             case 4: return;
-            default: cout << "\033[1;31mInvalid Input!! Please choose 1-4.\033[0m\n"; Sleep(1500);
+            default: cout << "\033[1;31mInvalid choice!\033[0m\n"; Sleep(1000);
         }
         system("cls");
     }
 }
 
-// 🏙 Check city existence
 bool cityExists(const string &city) {
     ifstream file("city.txt");
     if (!file.is_open()) return false;
     string name;
-    while (file >> name)
-        if (name == city) return true;
+    while (file >> name) if (name == city) return true;
     return false;
 }
 
-// ➕ Add new city
 void newcity() {
     cout << "\033[1;34mEnter the new city name:\033[0m ";
     string city;
@@ -256,140 +257,101 @@ void newcity() {
     city = toLowerManual(city);
 
     ifstream infile("city.txt");
-    bool exists = false;
-    string line;
-    if (infile.is_open()) {
-        while (getline(infile, line)) {
-            if (line == city) { exists = true; break; }
+    string name;
+    while (infile >> name)
+        if (name == city) {
+            cout << "\033[1;33mCity already exists!\033[0m\n";
+            Sleep(1500);
+            return;
         }
-        infile.close();
-    }
+    infile.close();
 
-    if (exists) {
-        cout << "\033[1;33mCity already exists!\033[0m\n";
-        Sleep(1500);
-        return;
-    }
-
-    fstream file("city.txt", ios::out | ios::app);
-    if (!file.is_open()) {
-        cout << "\033[1;31mError opening city.txt!\033[0m\n";
-        Sleep(1500);
-        return;
-    }
-
-    file << city << endl;
-    cout << "\033[1;32mCity added successfully!\033[0m\n";
+    ofstream file("city.txt", ios::app);
+    file << city << "\n";
     file.close();
+    cout << "\033[1;32mCity added successfully!\033[0m\n";
     Sleep(1500);
 }
 
-// ➕ Add new path
 void newpath() {
     showAllCities();
-    string place1, place2;
-    cout << "\033[1;33mEnter journey starting place:\033[0m ";
-    cin >> place1;
-    cout << "\033[1;33mEnter journey final place:\033[0m ";
-    cin >> place2;
-    place1 = toLowerManual(place1);
-    place2 = toLowerManual(place2);
+    string a, b;
+    cout << "\033[1;33mEnter start city:\033[0m ";
+    cin >> a;
+    cout << "\033[1;33mEnter destination city:\033[0m ";
+    cin >> b;
+    a = toLowerManual(a);
+    b = toLowerManual(b);
 
-    if (!cityExists(place1) || !cityExists(place2)) {
-        cout << "\033[1;31mOne or both cities not found in city list!\033[0m\n";
+    if (!cityExists(a) || !cityExists(b)) {
+        cout << "\033[1;31mOne or both cities not found!\033[0m\n";
         Sleep(1500);
         return;
     }
 
     int time, cost;
-    cout << "\033[1;34mEnter the time for the journey:\033[0m ";
-    while (!(cin >> time) || time < 0) {
-        cout << "Invalid time. Try again: ";
-        cin.clear(); 
-    }
-    cout << "\033[1;34mEnter the cost for the journey:\033[0m ";
-    while (!(cin >> cost) || cost < 0) {
-        cout << "Invalid cost. Try again: ";
-        cin.clear(); 
-    }
+    cout << "Enter travel time: ";
+    cin >> time;
+    cout << "Enter travel cost: ";
+    cin >> cost;
 
-    fstream file("path.txt", ios::out | ios::app);
-    if (!file.is_open()) {
-        cout << "\033[1;31mError opening path.txt!\033[0m\n";
-        Sleep(1500);
-        return;
-    }
-
-    file << place1 << " " << place2 << " " << time << " " << cost << endl;
-    cout << "\033[1;32mNew path added successfully!\033[0m\n";
+    ofstream file("path.txt", ios::app);
+    file << a << " " << b << " " << time << " " << cost << "\n";
     file.close();
+    cout << "\033[1;32mPath added successfully!\033[0m\n";
     Sleep(1500);
 }
 
-// ❌ Delete path
 void deletepath() {
     showAllCities();
-    string place1, place2;
-    cout << "\033[1;33mEnter journey starting place:\033[0m ";
-    cin >> place1;
-    cout << "\033[1;33mEnter journey final place:\033[0m ";
-    cin >> place2;
-    place1 = toLowerManual(place1);
-    place2 = toLowerManual(place2);
+    string a, b;
+    cout << "Enter start city: ";
+    cin >> a;
+    cout << "Enter destination city: ";
+    cin >> b;
+    a = toLowerManual(a);
+    b = toLowerManual(b);
 
     ifstream infile("path.txt");
-    if (!infile.is_open()) {
-        cout << "\033[1;31mError opening path.txt!\033[0m\n";
-        Sleep(1500);
-        return;
-    }
-
     vector<string> lines;
     string line;
     bool found = false;
     while (getline(infile, line)) {
         if (line.empty()) continue;
-        string a, b;
-        int t, c;
+        string c1, c2; int t, cost;
         stringstream ss(line);
-        if (!(ss >> a >> b >> t >> c)) {
-            lines.push_back(line);
-            continue;
-        }
-        if ((a == place1 && b == place2) || (a == place2 && b == place1)) {
+        ss >> c1 >> c2 >> t >> cost;
+        if ((c1 == a && c2 == b) || (c1 == b && c2 == a))
             found = true;
-            continue;
-        }
-        lines.push_back(line);
+        else
+            lines.push_back(line);
     }
     infile.close();
 
-    ofstream outfile("path.txt", ios::out | ios::trunc);
-    for (auto& l : lines) outfile << l << endl;
+    ofstream outfile("path.txt");
+    for (auto &l : lines) outfile << l << "\n";
     outfile.close();
 
-    if (found)
-        cout << "\033[1;32mPath deleted successfully!\033[0m\n";
-    else
-        cout << "\033[1;31mPath not found!\033[0m\n";
+    if (found) cout << "\033[1;32mPath deleted successfully!\033[0m\n";
+    else cout << "\033[1;31mPath not found!\033[0m\n";
     Sleep(1500);
 }
 
-// 🧭 Change path menu
 void changeinthepath() {
     int choice;
     while (true) {
-        cout << "\033[1;35m--- CHANGE IN PATH MENU ---\033[0m\n";
-        cout << "1. Add a new city\n";
-        cout << "2. Add a new path between cities\n";
-        cout << "3. Delete an existing path\n";
+        cout << "\033[1;35m--- MODIFY PATH MENU ---\033[0m\n";
+        cout << "1. Add new city\n";
+        cout << "2. Add new path\n";
+        cout << "3. Delete existing path\n";
         cout << "4. Exit\n";
         cout << "Enter your choice: ";
         string input;
         cin >> input;
-        while (input.size() != 1 || input[0] < '0' || input[0] > '9') {
-            cout << "Invalid input. Enter 1-4: ";
-            cin >> input;
+        if(input.size()>=2 || input[0]<'0' || input[0]>'9'){
+            cout<<"Invalid Input"<<endl ;
+            Sleep(1000);
+            continue ;
         }
         choice = input[0] - '0';
         system("cls");
@@ -398,27 +360,24 @@ void changeinthepath() {
             case 2: newpath(); break;
             case 3: deletepath(); break;
             case 4: return;
-            default: cout << "\033[1;31mInvalid Input!\033[0m\n"; Sleep(1500);
+            default: cout << "\033[1;31mInvalid Input!\033[0m\n"; Sleep(1000);
         }
         system("cls");
     }
 }
 
-// 🖥 Header banner
 void printHeader() {
     cout << "\033[1;36m----------------------------------------------\033[0m\n";
-    cout << "\033[1;36m=                                            =\033[0m\n";
-    cout << "\033[1;32m=         SMART ROUTE FINDER SYSTEM          =\033[0m\n";
-    cout << "\033[1;36m=                                            =\033[0m\n";
+    cout << "\033[1;36m-                                            -\033[0m\n";
+    cout << "\033[1;32m-       SMART ROUTE FINDER SYSTEM            -\033[0m\n";
+    cout << "\033[1;36m-                                            -\033[0m\n";
     cout << "\033[1;36m----------------------------------------------\033[0m\n";
 }
 
 int main() {
-    int choice;
     printHeader();
     Sleep(2000);
     system("cls");
-
     while (true) {
         cout << "\033[1;35m--- MAIN MENU ---\033[0m\n";
         cout << "1. Find a path\n";
@@ -427,22 +386,23 @@ int main() {
         cout << "Enter your choice: ";
         string input;
         cin >> input;
-        while (input.size() != 1 || input[0] < '0' || input[0] > '9') {
-            cout << "\033[1;31mInvalid input. Please enter 1-3:\033[0m ";
-            cin >> input;
+        if(input.size()>=2 || (input[0]<'0' && input[0]>'9')){
+            cout<<"Invalid Input"<<endl ;
+            Sleep(1000);
+            continue ;
         }
-        choice = input[0] - '0';
+        int choice = input[0] - '0';
         system("cls");
         switch (choice) {
             case 1: Alltypeofpath(); break;
             case 2: changeinthepath(); break;
             case 3:
-                cout << "\033[1;32mThanks for using the app! Goodbye!\033[0m\n";
-                Sleep(2000);
+                cout << "\033[1;32mThanks for using Smart Route Finder!\033[0m\n";
+                Sleep(1500);
                 return 0;
             default:
-                cout << "\033[1;31mInvalid Input!! Please choose 1-3.\033[0m\n";
-                Sleep(1500);
+                cout << "\033[1;31mInvalid choice!\033[0m\n";
+                Sleep(1000);
         }
         system("cls");
     }

@@ -16,4 +16,15 @@ ahmedabad pune 70 250
 ahmedabad delhi 100 400
 hyderabad bangalore 70 300
 hyderabad chennai 80 350
-
+mumbai ahmedabad 90 350
+ahmedabad jaipur 80 300
+kolkata jaipur 200 750
+lucknow jaipur 100 400
+bangalore pune 110 450
+pune hyderabad 120 480
+delhi jaipur 60 220
+kolkata chennai 180 700
+mumbai hyderabad 150 580
+lucknow kolkata 90 420
+delhi ahmedabad 100 390
+chennai mumbai 170 650
